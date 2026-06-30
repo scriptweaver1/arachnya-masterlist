@@ -374,10 +374,10 @@ else { start3D(); }
 function start3D(){
   /* ===== TUNABLES ===== */
   const PXU=46, SPIDER_PX=34, FWD=0;     // FWD: if she faces wrong, try Math.PI/2, Math.PI, -Math.PI/2
-  const WALK_SPEED=1.3, CURIOUS_SPEED=0.85, WANDER_SPEED=1.0;
+  const WALK_SPEED=1.0, CURIOUS_SPEED=0.65, WANDER_SPEED=0.75;
   const JUMP_COOLDOWN=5000;              // min ms between jumps
-  const MAX_JUMP=260;                    // longest single leap (px); farther = she walks
-  const observeDist=460, panicDist=100;  // watch from ~observeDist; retreat inside panicDist
+  const MAX_JUMP=5000;                    // longest single leap (px); farther = she walks
+  const observeDist=860, panicDist=200;  // watch from ~observeDist; retreat inside panicDist
   const CURIOUS_AT=10000, WANDER_AT=30000, CARD_INTERVAL=20000;
   const EDGE=34, TURN=0.16, JUMP_TIME_SCALE=1;
   const MOBILE = matchMedia('(hover: none) and (pointer: coarse)').matches;
