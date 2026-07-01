@@ -379,6 +379,10 @@ function start3D(){
   const MAX_JUMP=260;                    // longest single leap (px); farther = she walks
   const FEAR_JUMP=MAX_JUMP*2.2;          // panic leap range — how far she'll bolt to reach a card
   const observeDist=460, panicDist=100;  // watch from ~observeDist; retreat inside panicDist
+  const retreatDist=panicDist*2.4;       // within this she backs away facing the cursor (reverse walk)
+  const FLY_INTERVAL=30000;              // ms between fly spawns (~one every 30s)
+  const HUNT_SPEED=WALK_SPEED*1.35;      // how fast she stalks a fly
+  const CALM_AT=3;                       // flies eaten before she stops fearing the cursor
   const OBSERVE_DWELL=750;               // ms she pauses to watch at each vantage point
   const CURIOUS_AT=10000, WANDER_AT=30000, CARD_INTERVAL=20000;
   const EDGE=34, TURN=0.16, JUMP_TIME_SCALE=1;
@@ -402,6 +406,7 @@ function start3D(){
   let startle=false, wanderNext=0, mobileNextJump=performance.now()+5000, mobileTarget=null;
   let wanderGoal=-1, curNode=-1, path=[], pathGoal=-1, lastMode='', targetCard=null, orbitDir=1;
   let observeGoal=-1, observeAngle=null, observeDwell=0, pickTX=-1, pickTY=-1;
+  let fed=0, calm=false;
   let dwellTimer=null, dwellCard=null;
   function canJump(){ return performance.now()-lastJump >= JUMP_COOLDOWN; }
   function isVisible(c){ const r=c.getBoundingClientRect(); return r.top<H-10 && r.bottom>10; }
@@ -414,7 +419,7 @@ function start3D(){
   function walkGraphTo(goal,speed){ if(path.length===0){ curNode=nearestIndex(bx,by); setPath(goal); } if(path.length===0) return false; const n=nodes()[path[0]]; if(!n){ path=[]; return false; } const st=driveTo(n.x,n.y,speed,6); if(st==='arrive'){ curNode=path[0]; path.shift(); setPath(goal); } return true; }
 
   addEventListener('resize',()=>{W=innerWidth;H=innerHeight;renderer.setSize(W,H,false);makeCam();},{passive:true});
-  addEventListener('mousemove',e=>{ const idlePrev=performance.now()-lastPointer; if(idlePrev>=CURIOUS_AT) startle=true; tx=e.clientX;ty=e.clientY;lastPointer=performance.now(); },{passive:true});
+  addEventListener('mousemove',e=>{ const idlePrev=performance.now()-lastPointer; if(idlePrev>=CURIOUS_AT && !calm) startle=true; tx=e.clientX;ty=e.clientY;lastPointer=performance.now(); },{passive:true});
   function touch(e){const t=e.touches&&e.touches[0];if(t){tx=t.clientX;ty=t.clientY;lastPointer=performance.now();}}
   addEventListener('touchstart',touch,{passive:true}); addEventListener('touchmove',touch,{passive:true});
   addEventListener('pointerdown',e=>{
@@ -441,10 +446,11 @@ function start3D(){
   if(feedBtn) feedBtn.addEventListener('click',e=>{ e.stopPropagation(); if(pantry<=0) return; armBait=!armBait; ui.classList.toggle('arm',armBait); document.body.classList.toggle('arm-bait',armBait); });
   const FLY='<svg viewBox="0 0 24 24" width="17" height="17"><ellipse cx="12" cy="13" rx="4" ry="5.5" fill="#171015"/><ellipse cx="12" cy="9" rx="2.3" ry="2.5" fill="#241016"/><ellipse cx="6.5" cy="9" rx="4.6" ry="2.2" fill="#b9b3c4" opacity=".55"/><ellipse cx="17.5" cy="9" rx="4.6" ry="2.2" fill="#b9b3c4" opacity=".55"/></svg>';
   let flies=[];
-  function spawnFly(){ if(flies.length>=2) return; const el=document.createElement('div'); el.className='fly'; el.innerHTML=FLY; const edge=Math.random()<0.5; const f={el,x:edge?-20:W+20,y:40+Math.random()*(H-120),vx:(edge?1:-1)*(1.2+Math.random()),vy:(Math.random()-0.5)*2,born:performance.now()}; el.style.transform='translate('+f.x.toFixed(1)+'px,'+f.y.toFixed(1)+'px)'; el.addEventListener('click',ev=>{ev.stopPropagation();catchFly(f);}); document.body.appendChild(el); flies.push(f); }
+  function spawnFly(){ if(flies.length>=1) return; const el=document.createElement('div'); el.className='fly'; el.innerHTML=FLY; const edge=Math.random()<0.5; const f={el,x:edge?-20:W+20,y:40+Math.random()*(H-120),vx:(edge?1:-1)*(1.2+Math.random()),vy:(Math.random()-0.5)*2,born:performance.now()}; el.style.transform='translate('+f.x.toFixed(1)+'px,'+f.y.toFixed(1)+'px)'; el.addEventListener('click',ev=>{ev.stopPropagation();catchFly(f);}); document.body.appendChild(el); flies.push(f); }
   function catchFly(f){ pantry++; updateUI(); f.el.style.transition='opacity .2s,transform .2s'; f.el.style.opacity='0'; f.el.style.transform+=' scale(.2)'; setTimeout(()=>f.el.remove(),200); flies=flies.filter(x=>x!==f); }
   function updateFlies(now){ for(let i=flies.length-1;i>=0;i--){ const f=flies[i]; f.vx+=(Math.random()-0.5)*0.6; f.vy+=(Math.random()-0.5)*0.6; const s=Math.hypot(f.vx,f.vy),mx=2.6; if(s>mx){f.vx=f.vx/s*mx;f.vy=f.vy/s*mx;} f.x+=f.vx; f.y+=f.vy; if(f.y<30){f.y=30;f.vy*=-1;} if(f.y>H-30){f.y=H-30;f.vy*=-1;} f.el.style.transform='translate('+f.x.toFixed(1)+'px,'+f.y.toFixed(1)+'px)'; if(f.x<-40||f.x>W+40||now-f.born>14000){ f.el.remove(); flies.splice(i,1);} } }
-  setInterval(()=>{ if(Math.random()<0.7) spawnFly(); }, 5200);
+  setInterval(()=>{ if(flies.length===0 && Math.random()<0.9) spawnFly(); }, FLY_INTERVAL);
+  setTimeout(()=>{ if(flies.length===0) spawnFly(); }, 6000);
   function placeBait(x,y){ if(pantry<=0) return; pantry--; updateUI(); armBait=false; ui.classList.remove('arm'); document.body.classList.remove('arm-bait'); perchCard=null; if(bait&&bait.el) bait.el.remove(); const el=document.createElement('div'); el.className='bait'; el.innerHTML=FLY; el.style.transform='translate('+x+'px,'+y+'px)'; document.body.appendChild(el); bait={x:Math.max(30,Math.min(W-30,x)),y:Math.max(40,Math.min(H-40,y)),el}; feedJumped=false; }
 
   let actx=null;
@@ -495,7 +501,7 @@ function start3D(){
     return 'turn';
   }
   function faceCursor(rate){ const fx=tx-bx,fy=ty-by; if(Math.hypot(fx,fy)>1){ const t=Math.atan2(fx,fy)+FWD; let da=((t-ang+Math.PI*3)%(Math.PI*2))-Math.PI; ang+=da*rate; } }
-  function backAway(rx,ry,speed){ const dx=rx-bx, dy=ry-by, d=Math.hypot(dx,dy); if(d>1){ const m=Math.min(speed,d); bx+=(dx/d)*m; by+=(dy/d)*m; } faceCursor(0.25); }
+  function backAway(rx,ry,speed){ const dx=rx-bx, dy=ry-by, d=Math.hypot(dx,dy); if(d>1){ const m=Math.min(speed,d); bx=Math.max(20,Math.min(W-20,bx+(dx/d)*m)); by=Math.max(20,Math.min(H-20,by+(dy/d)*m)); } faceCursor(0.25); }
 
   // observe the cursor from ~observeDist, snapping to web nodes; retreat when too close
   function observeTarget(cd,cdx,cdy){
@@ -525,10 +531,12 @@ function start3D(){
   }
   function observeUpdate(now){
     const cdx=bx-tx, cdy=by-ty, cd=Math.hypot(cdx,cdy)||1;
-    if(cd < panicDist){                                            // cursor too close → bolt to a card
-      if(canJump()) fearJumpToCard();
-      else { backing=true; backAway(bx+(cdx/cd)*70, by+(cdy/cd)*70, WALK_SPEED*1.1); }
-      return;
+    if(!calm){
+      if(cd < panicDist && canJump()){ fearJumpToCard(); return; }   // very close → bolt to a card
+      if(cd < retreatDist){                                          // nervous → back straight away, eyes on cursor
+        backing=true; const ux=cdx/cd, uy=cdy/cd;
+        backAway(bx+ux*140, by+uy*140, WALK_SPEED*1.05); return;
+      }
     }
     const od=Math.max(panicDist+60, Math.min(observeDist, Math.min(W,H)*0.42)); // ring always outside panic
     const ns=nodes();
@@ -566,6 +574,21 @@ function start3D(){
   }
   function frightJump(){ fearJumpToCard(); }
   function perchHold(){ if(!perchCard) return; const r=perchCard.getBoundingClientRect(); const cx=r.right-24, cy=r.top+24; bx+=(cx-bx)*0.3; by+=(cy-by)*0.3; if(!MOBILE) faceCursor(0.1); }
+  function faceTo(x,y,rate){ const fx=x-bx,fy=y-by; if(Math.hypot(fx,fy)>1){ const t=Math.atan2(fx,fy)+FWD; let da=((t-ang+Math.PI*3)%(Math.PI*2))-Math.PI; ang+=da*rate; } }
+  function registerFed(){ fed++; if(fed>=CALM_AT && !calm) goCalm(); }
+  function goCalm(){ calm=true; startle=false; document.body.classList.add('arachnya-calm'); if(key) key.color.set(0xffb38f); if(ui){ const b=document.createElement('span'); b.className='calm-badge'; b.textContent='\u00b7 at ease'; b.style.cssText='color:var(--silk);letter-spacing:.12em'; ui.appendChild(b); } }
+  function consumeFly(f){ f.el.style.transition='opacity .15s,transform .15s'; f.el.style.opacity='0'; f.el.style.transform+=' scale(.2)'; setTimeout(()=>f.el.remove(),160); flies=flies.filter(x=>x!==f); registerFed(); }
+  function eatNibble(){ eating=true; playClip('Eating',1.2); setTimeout(()=>{ eating=false; busy=false; },1100); }
+  function huntUpdate(now){
+    const f=flies[0]; if(!f) return;
+    const dd=Math.hypot(f.x-bx,f.y-by);
+    if(dd < EDGE*0.8){ consumeFly(f); eatNibble(); return; }          // close enough → snap it up
+    if(dd > MAX_JUMP*0.8){ driveTo(f.x,f.y,HUNT_SPEED,8); }            // stalk the moving fly
+    else if(!busy && !jump && canJump()){                             // pounce
+      const tf=f; jumpTo(f.x,f.y,()=>{ if(flies.indexOf(tf)>=0){ consumeFly(tf); eatNibble(); } }, true, true, MAX_JUMP*1.35);
+    } else { faceTo(f.x,f.y,0.22); }                                  // crouched, ready to strike
+  }
+  function calmFollow(now){ const dd=Math.hypot(tx-bx,ty-by); if(dd>72){ driveTo(tx,ty,CURIOUS_SPEED,64); } else { faceCursor(0.12); } }
   function mobileUpdate(now){
     if(perchCard){ if(!isVisible(perchCard)) mobileNextJump=Math.min(mobileNextJump,now+700); perchHold(); }
     if(!mobileTarget && now>=mobileNextJump){ const cards=visibleCards(); if(cards.length){ mobileTarget=cards[(Math.random()*cards.length)|0]; } else { mobileNextJump=now+3000; } }
@@ -585,14 +608,16 @@ function start3D(){
         backing=false; let modeNow;
         if(bait){ modeNow='feed'; perchCard=null; targetCard=null; const dd=Math.hypot(bait.x-bx,bait.y-by);
           if(dd>MAX_JUMP*0.85){ driveTo(bait.x,bait.y,WALK_SPEED,8); }
-          else if(!feedJumped){ if(jumpTo(bait.x,bait.y,()=>{ eating=true; playClip('Eating',1); setTimeout(()=>{ if(bait){bait.el.remove();bait=null;} feedJumped=false; eating=false; busy=false; },2300); }, true, false)) feedJumped=true; }
+          else if(!feedJumped){ if(jumpTo(bait.x,bait.y,()=>{ eating=true; playClip('Eating',1); setTimeout(()=>{ if(bait){bait.el.remove();bait=null;} feedJumped=false; eating=false; busy=false; registerFed(); },2300); }, true, false)) feedJumped=true; }
         }
         else if(MOBILE){ modeNow='mobile'; mobileUpdate(now); }
-        else if(startle){ modeNow='fright'; startle=false; perchCard=null; targetCard=null; frightJump(); }
-        else { const idle=now-lastPointer;
-          if(idle>=WANDER_AT){ modeNow='wander'; perchCard=null; targetCard=null; wanderFree(now); }
+        else if(startle && !calm){ modeNow='fright'; startle=false; perchCard=null; targetCard=null; frightJump(); }
+        else { startle=false; const idle=now-lastPointer, cd=Math.hypot(bx-tx,by-ty);
+          if(flies.length && (calm || cd>retreatDist)){ modeNow='hunt'; perchCard=null; targetCard=null; huntUpdate(now); }
+          else if(calm){ modeNow='calm'; perchCard=null; targetCard=null; calmFollow(now); }
+          else if(idle>=WANDER_AT){ modeNow='wander'; perchCard=null; targetCard=null; wanderFree(now); }
           else if(idle>=CURIOUS_AT){ modeNow='curious'; perchCard=null; targetCard=null; curious(now); }
-          else if(perchCard){ modeNow='perch'; if(Math.hypot(bx-tx,by-ty)<panicDist && canJump()) fearJumpToCard(); else perchHold(); }
+          else if(perchCard){ modeNow='perch'; if(cd<panicDist && canJump()) fearJumpToCard(); else perchHold(); }
           else if(targetCard){ modeNow='approach'; approachCard(now); }
           else { modeNow='observe'; observeUpdate(now); }
         }
